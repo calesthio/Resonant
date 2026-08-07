@@ -11,6 +11,7 @@ const evidence = path.join(root, '.agent', 'evidence')
 const serverPath = path.join(root, 'mcp-dist', 'server.mjs')
 const instrumentRoot = path.join(scratch, 'instrument-library')
 const aceRoot = path.join(scratch, 'ace-step-not-installed')
+const seedVcRoot = path.join(scratch, 'seed-vc-not-installed')
 const audioAssetRoot = path.join(scratch, 'audio-assets')
 const smokePack = path.join(instrumentRoot, 'packs', 'smoke-soundfont')
 await mkdir(smokePack, { recursive: true })
@@ -22,7 +23,7 @@ await writeFile(path.join(smokePack, 'manifest.json'), JSON.stringify({
   instruments: [{ id: 'saw', name: smokePreset.name, family: 'Test', format: 'soundfont', file: 'smoke.sf2', program: smokePreset.program, bankMSB: smokePreset.bankMSB, bankLSB: smokePreset.bankLSB, percussion: smokePreset.isDrum }],
 }))
 process.env.RESONANT_INSTRUMENT_ROOT = instrumentRoot
-const transport = new StdioClientTransport({ command: process.execPath, args: [serverPath, '--root', scratch], env: { ...process.env, RESONANT_INSTRUMENT_ROOT: instrumentRoot, RESONANT_ACE_ROOT: aceRoot, RESONANT_AUDIO_ASSET_ROOT: audioAssetRoot }, stderr: 'pipe' })
+const transport = new StdioClientTransport({ command: process.execPath, args: [serverPath, '--root', scratch], env: { ...process.env, RESONANT_INSTRUMENT_ROOT: instrumentRoot, RESONANT_ACE_ROOT: aceRoot, RESONANT_SEED_VC_ROOT: seedVcRoot, RESONANT_AUDIO_ASSET_ROOT: audioAssetRoot }, stderr: 'pipe' })
 const client = new Client({ name: 'resonant-release-smoke', version: '0.4.0' })
 const smokeStarted = performance.now()
 
@@ -42,6 +43,10 @@ try {
   await client.connect(transport)
   const connectedMs = performance.now() - smokeStarted
   const tools = await client.listTools()
+  const voiceTools = ['get_voice_conversion_provider_status', 'start_voice_conversion', 'get_voice_conversion_status', 'collect_voice_conversion', 'abandon_voice_conversion', 'convert_singing_voice']
+  if (voiceTools.some((name) => !tools.tools.some((tool) => tool.name === name))) throw new Error('The durable Seed-VC MCP tool family is incomplete.')
+  const startVoiceTool = tools.tools.find((tool) => tool.name === 'start_voice_conversion')
+  if (!startVoiceTool?.inputSchema?.properties?.lengthAdjust) throw new Error('Seed-VC length adjustment is missing from the MCP schema.')
   const resources = await client.listResources()
   const prompts = await client.listPrompts()
   const guide = await client.readResource({ uri: 'resonant://guide/production' })
@@ -54,6 +59,7 @@ try {
   const spanishSongwritingPrompt = await client.getPrompt({ name: 'write_song', arguments: { idea: 'Two old friends meet again on the malecón', language: 'Latino', genre: 'salsa' } })
   const japaneseSongwritingPrompt = await client.getPrompt({ name: 'write_song', arguments: { idea: 'A courier races the sunrise to deliver one forgotten letter', language: 'J-pop', genre: 'anime opening' } })
   const capabilities = await call('get_capabilities')
+  if (capabilities.singingVoiceConversion.preferredWorkflow?.[3] !== 'start_voice_conversion' || capabilities.singingVoiceConversion.synchronousCompatibilityTool !== 'convert_singing_voice') throw new Error('Seed-VC durable-job discovery is incomplete.')
   const songwritingLanguages = await call('list_songwriting_languages')
   if (!songwritingLanguages.languages.some((language) => language.id === 'en')) throw new Error('English songwriting language pack is missing.')
   if (!songwritingLanguages.languages.some((language) => language.id === 'hi')) throw new Error('Hindi songwriting language pack is missing.')
@@ -96,6 +102,8 @@ try {
   if (japaneseLyricAnalysis.analysis.language !== 'ja-JP' || japaneseLyricAnalysis.analysis.sections.map((section) => section.kind).join(',') !== 'verse,pre-chorus,chorus,bridge') throw new Error('J-pop alias resolution or Japanese section discovery failed.')
   const aiGenerator = await call('get_ai_generator_status')
   if (aiGenerator.generator.installed || aiGenerator.generator.running) throw new Error('MCP AI generator status ignored its isolated smoke root.')
+  const voiceProvider = await call('get_voice_conversion_provider_status')
+  if (voiceProvider.provider.installed || voiceProvider.provider.profile.model !== 'seed-uvit-whisper-base') throw new Error('MCP Seed-VC status ignored its isolated smoke root or model profile.')
   const installedInstruments = await call('list_instruments')
   if (!installedInstruments.instruments.length) throw new Error('MCP did not discover the shared smoke SoundFont.')
   const created = await call('create_project', { path: 'agent-composition.resonant', title: 'Midnight Circuit', bpm: 96, template: 'blank' })
@@ -181,6 +189,7 @@ try {
   await expectError('staleRevision', 'set_project_settings', { path: 'agent-composition.resonant', expectedRevision: firstRevision, bpm: 110 })
   await expectError('pathTraversal', 'render_wav', { path: 'agent-composition.resonant', expectedRevision: inspected.revision, outputPath: '../escape.wav' })
   await expectError('invalidPitch', 'set_clip_notes', { path: 'agent-composition.resonant', expectedRevision: inspected.revision, clip: clipFor('Pulse'), notes: [{ step: 0, pitch: 200 }] })
+  await expectError('voiceProviderNotInstalled', 'start_voice_conversion', { sourceAudioPath: 'agent-composition.wav', referenceAudioPath: 'agent-composition.wav', voiceRightsConfirmed: true, lengthAdjust: 1.25, idempotencyKey: 'smoke-voice-job' })
   const history = await call('list_history', { path: 'agent-composition.resonant' })
 
   await mkdir(evidence, { recursive: true })

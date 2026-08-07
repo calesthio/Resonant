@@ -5,6 +5,7 @@ const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const instrumentLibrary = require('./instrument-library.cjs')
 const aceStep = require('./ace-step.cjs')
+const seedVc = require('./seed-vc.cjs')
 const audioAssets = require('./audio-assets.cjs')
 
 let mainWindow
@@ -37,6 +38,7 @@ async function atomicWrite(filePath, data) {
 function recoveryPath() { return path.join(app.getPath('userData'), 'recovery.resonant') }
 function instrumentRoot() { return instrumentLibrary.libraryRoot(app) }
 function aceRoot() { return aceStep.libraryRoot(app) }
+function seedVcRoot() { return seedVc.libraryRoot(app) }
 function audioAssetRoot() { return audioAssets.libraryRoot(app) }
 
 function mcpServerPath() {
@@ -50,7 +52,7 @@ async function mcpSetup(root) {
   const server = mcpServerPath()
   const args = [server, '--root', workspaceRoot]
   const environment = { ELECTRON_RUN_AS_NODE: '1' }
-  const codex = `[mcp_servers.resonant]\ncommand = ${JSON.stringify(executable)}\nargs = ${JSON.stringify(args)}\nenv = { ELECTRON_RUN_AS_NODE = "1" }\nstartup_timeout_sec = 20\ntool_timeout_sec = 180\n`
+  const codex = `[mcp_servers.resonant]\ncommand = ${JSON.stringify(executable)}\nargs = ${JSON.stringify(args)}\nenv = { ELECTRON_RUN_AS_NODE = "1" }\nstartup_timeout_sec = 20\ntool_timeout_sec = 600\n`
   const claude = `${JSON.stringify({ mcpServers: { resonant: { type: 'stdio', command: executable, args, env: environment } } }, null, 2)}\n`
   const powershell = `$env:ELECTRON_RUN_AS_NODE = '1'\n& ${JSON.stringify(executable)} ${JSON.stringify(server)} --root ${JSON.stringify(workspaceRoot)}\n`
   let bundled = true
@@ -234,6 +236,35 @@ function registerIpc() {
   ipcMain.handle('ace:remove', async (event) => {
     if (!isTrusted(event)) throw new Error('Untrusted ACE-Step request.')
     return aceStep.remove(aceRoot())
+  })
+  ipcMain.handle('seed-vc:state', async (event) => {
+    if (!isTrusted(event)) throw new Error('Untrusted Seed-VC request.')
+    return seedVc.state(seedVcRoot())
+  })
+  ipcMain.handle('seed-vc:install', async (event) => {
+    if (!isTrusted(event)) throw new Error('Untrusted Seed-VC request.')
+    return seedVc.install(seedVcRoot(), (progress) => mainWindow?.webContents.send('seed-vc:progress', progress))
+  })
+  ipcMain.handle('seed-vc:choose-audio', async (event, role) => {
+    if (!isTrusted(event) || !['source', 'reference'].includes(role)) throw new Error('Invalid Seed-VC audio request.')
+    const result = await dialog.showOpenDialog(mainWindow, { title: role === 'source' ? 'Choose an isolated source vocal' : 'Choose a consented reference voice', properties: ['openFile'], filters: [{ name: 'Audio', extensions: ['wav', 'flac', 'mp3', 'm4a', 'opus', 'ogg'] }] })
+    if (result.canceled || !result.filePaths[0]) return { canceled: true }
+    return { canceled: false, path: result.filePaths[0], name: path.basename(result.filePaths[0]) }
+  })
+  ipcMain.handle('seed-vc:convert', async (event, request) => {
+    if (!isTrusted(event) || !request || typeof request.sourcePath !== 'string' || typeof request.referencePath !== 'string') throw new Error('Invalid Seed-VC conversion request.')
+    await aceStep.stop()
+    let sourcePath = request.sourcePath
+    if (sourcePath.startsWith('asset:')) {
+      const id = sourcePath.slice(6)
+      if (!/^[a-f0-9]{64}$/i.test(id)) throw new Error('Invalid source audio asset.')
+      sourcePath = path.join(audioAssetRoot(), `${id}.wav`)
+    }
+    return seedVc.convert(seedVcRoot(), { ...request, sourcePath }, (progress) => mainWindow?.webContents.send('seed-vc:progress', progress))
+  })
+  ipcMain.handle('seed-vc:remove', async (event) => {
+    if (!isTrusted(event)) throw new Error('Untrusted Seed-VC request.')
+    return seedVc.remove(seedVcRoot())
   })
 }
 

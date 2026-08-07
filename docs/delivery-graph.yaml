@@ -33,7 +33,7 @@ nodes:
     depends_on: [workflows]
     acceptance: [portable and installer builds launch, documentation is accurate]
     verification: [npm run package:release]
-    evidence: [scripts/package-windows.mjs, docs/release-notes-0.4.2.md]
+    evidence: [scripts/package-windows.mjs, docs/release-notes-0.5.0.md]
     risks: [unsigned executable warning]
     decision_refs: []
   - id: mcp-contract
@@ -89,4 +89,13 @@ nodes:
     verification: [unit tests, MCP smoke test, Electron smoke test, production build]
     evidence: [src/songwriting/core.test.ts, docs/songwriting-language-packs.md]
     risks: [heuristic syllable and rhyme estimates, language packs require fluent-speaker review]
+    decision_refs: []
+  - id: singing-voice-conversion
+    outcome: Users and MCP agents can turn an isolated generated vocal into a consented personal singing voice with a local optional provider
+    state: verified
+    depends_on: [workflows, mcp-tools]
+    acceptance: [pinned Seed-VC installer, hardware guidance, explicit voice-rights confirmation, workspace-confined durable MCP conversion, idempotent retries, ACE-Step GPU release]
+    verification: [unit tests, MCP smoke test, Electron smoke test, production build]
+    evidence: [electron/seed-vc.test.ts, mcp/seedVc.test.ts, mcp/voiceJobs.test.ts, docs/agentic-mode.md]
+    risks: [archived upstream, first-use model download, device-specific CUDA compatibility, long-running detached worker cleanup]
     decision_refs: []

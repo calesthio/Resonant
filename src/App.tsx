@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, CircleHelp, Disc3, Download, FolderOpen, Gauge, Keyboard, Library, Menu, Pause, PenLine, Play, Plus, Radio, Redo2, Save, SkipBack, Sparkles, Undo2, X } from 'lucide-react'
+import { AudioLines, Bot, CircleHelp, Disc3, Download, FolderOpen, Gauge, Keyboard, Library, Menu, Pause, PenLine, Play, Plus, Radio, Redo2, Save, SkipBack, Sparkles, Undo2, X } from 'lucide-react'
 import { liveEngine } from './audio/LiveEngine'
 import { floatsToBase64, summarizeWaveform } from './domain/pcm'
 import { createBlankProject, createDemoProject, makeId, parseProject, serializeProject, touch } from './domain/project'
@@ -7,6 +7,7 @@ import { encodeWav, renderProject } from './domain/render'
 import { renderProjectWithInstruments } from './domain/instrumentRender'
 import type { InstrumentLibraryState } from './domain/instruments'
 import { EMPTY_ACE_STEP_STATE, type AceStepGeneration, type AceStepState } from './domain/aceStep'
+import { EMPTY_SEED_VC_STATE, type SeedVcConversion, type SeedVcState } from './domain/seedVc'
 import { formatBeat } from './domain/time'
 import type { AudioClip, EngineState, Project, Track, Workspace } from './domain/types'
 import { useAppStore } from './store/AppStore'
@@ -17,6 +18,7 @@ import { MixerView } from './components/MixerView'
 import { TrackRail } from './components/TrackRail'
 import { InstrumentLibraryModal } from './components/InstrumentLibraryModal'
 import { AceStepStudioModal } from './components/AceStepStudioModal'
+import { SeedVcStudioModal } from './components/SeedVcStudioModal'
 import { SongwriterStudioModal } from './components/SongwriterStudioModal'
 import { McpSetupModal } from './components/McpSetupModal'
 import { emptySongwritingDraft } from './songwriting/core'
@@ -55,6 +57,8 @@ export default function App() {
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [aceStep, setAceStep] = useState<AceStepState>(EMPTY_ACE_STEP_STATE)
   const [aceStudioOpen, setAceStudioOpen] = useState(false)
+  const [seedVc, setSeedVc] = useState<SeedVcState>(EMPTY_SEED_VC_STATE)
+  const [seedVcStudioOpen, setSeedVcStudioOpen] = useState(false)
   const [songwriterOpen, setSongwriterOpen] = useState(false)
   const [mcpSetupOpen, setMcpSetupOpen] = useState(false)
   const recorder = useRef<{ recorder: MediaRecorder; stream: MediaStream; chunks: Blob[]; track: Track } | null>(null)
@@ -82,6 +86,8 @@ export default function App() {
   useEffect(() => { void refreshLibrary().catch(() => notify('Instrument library could not be indexed.', 'error')) }, [notify, refreshLibrary])
   const refreshAceStep = useCallback(async () => { if (window.resonantDesktop) setAceStep(await window.resonantDesktop.getAceStepState()) }, [])
   useEffect(() => { void refreshAceStep().catch(() => notify('ACE-Step status could not be read.', 'error')) }, [notify, refreshAceStep])
+  const refreshSeedVc = useCallback(async () => { if (window.resonantDesktop) setSeedVc(await window.resonantDesktop.getSeedVcState()) }, [])
+  useEffect(() => { void refreshSeedVc().catch(() => notify('Seed-VC status could not be read.', 'error')) }, [notify, refreshSeedVc])
   useEffect(() => {
     if (!store.dirty) return
     const timeout = window.setTimeout(() => window.resonantDesktop?.autosave(serializeProject(store.project)).catch(() => notify('Autosave could not be written.', 'error')), 1800)
@@ -223,6 +229,12 @@ export default function App() {
     await placeAudioClip(track, generation.name, generation.data)
   }, [placeAudioClip, store.project.tracks])
 
+  const placeSeedVcConversion = useCallback(async (conversion: SeedVcConversion) => {
+    const track = store.project.tracks.find((candidate) => candidate.kind === 'audio')
+    if (!track) throw new Error('Add an audio track before converting with Seed-VC.')
+    await placeAudioClip(track, conversion.name, conversion.data)
+  }, [placeAudioClip, store.project.tracks])
+
   const saveSongwritingDraft = useCallback((draft: SongwritingDraft) => {
     store.commit(touch({ ...store.project, title: draft.title.trim() || store.project.title, songwriting: structuredClone(draft) }), 'Update songwriting draft')
   }, [store])
@@ -300,7 +312,7 @@ export default function App() {
         <button className={`text-button ${metronome ? 'active' : ''}`} aria-pressed={metronome} onClick={() => setMetronome((value) => !value)}>CLICK</button>
         <button className={`text-button ${store.project.loop.enabled ? 'active' : ''}`} aria-pressed={store.project.loop.enabled} onClick={() => store.commit(touch({ ...store.project, loop: { ...store.project.loop, enabled: !store.project.loop.enabled } }), 'Toggle loop')}>LOOP</button>
       </div>
-      <div className="top-status"><span className="save-state">{store.dirty ? 'UNSAVED' : filePath ? 'SAVED' : 'READY'}</span><span title="Measured Web Audio output latency"><Gauge size={14} /> {latency === null ? 'audio idle' : `${latency} ms`}</span><button className="icon-button songwriter-status" title="Songwriter Studio" aria-label="Open Songwriter Studio" onClick={() => setSongwriterOpen(true)}><PenLine size={16} /></button><button className={`icon-button ai-status ${aceStep.running ? 'active' : ''}`} title="ACE-Step Studio" aria-label="Open ACE-Step Studio" onClick={() => setAceStudioOpen(true)}><Sparkles size={16} /></button><button className="icon-button" title="Instrument library" aria-label="Open instrument library" onClick={() => setLibraryOpen(true)}><Library size={16} /></button><button className="icon-button" title="Quick start" aria-label="Open quick start" onClick={() => setWelcome(true)}><CircleHelp size={16} /></button></div>
+      <div className="top-status"><span className="save-state">{store.dirty ? 'UNSAVED' : filePath ? 'SAVED' : 'READY'}</span><span title="Measured Web Audio output latency"><Gauge size={14} /> {latency === null ? 'audio idle' : `${latency} ms`}</span><button className="icon-button songwriter-status" title="Songwriter Studio" aria-label="Open Songwriter Studio" onClick={() => setSongwriterOpen(true)}><PenLine size={16} /></button><div className="ai-tool-cluster" role="group" aria-label="Local AI tools"><button className={`ai-tool-button ai-music-tool ${aceStep.running ? 'running' : aceStep.installed ? 'ready' : 'install'}`} title="Open ACE-Step Studio" aria-label={`AI Song generator · ${aceStep.running ? 'running' : aceStep.installed ? 'installed and ready' : 'installation available'}`} onClick={() => setAceStudioOpen(true)}><Sparkles size={16} /><span><strong>AI SONG</strong><small>{aceStep.running ? 'RUNNING' : aceStep.installed ? 'READY' : 'INSTALL'}</small></span></button><button className={`ai-tool-button voice-tool ${seedVc.installed ? 'ready' : 'install'}`} title="Open Seed-VC Studio" aria-label={`My Voice converter · ${seedVc.installed ? 'installed and ready' : 'installation available'}`} onClick={() => setSeedVcStudioOpen(true)}><AudioLines size={16} /><span><strong>MY VOICE</strong><small>{seedVc.installed ? 'READY' : 'INSTALL'}</small></span></button></div><button className="icon-button" title="Instrument library" aria-label="Open instrument library" onClick={() => setLibraryOpen(true)}><Library size={16} /></button><button className="icon-button" title="Quick start" aria-label="Open quick start" onClick={() => setWelcome(true)}><CircleHelp size={16} /></button></div>
     </header>
 
     <nav className="workspace-tabs" aria-label="Workspaces">
@@ -322,6 +334,7 @@ export default function App() {
       <div className="welcome-actions"><button className="primary-card" onClick={() => void newProject(true)}><Sparkles size={20} /><span><strong>Open starter groove</strong><small>Hear and reshape a four-track sketch</small></span></button><button className="secondary-card" onClick={() => void newProject(false)}><span className="plus"><Plus size={15} /></span><span><strong>Begin empty</strong><small>Five tracks and a clean session</small></span></button></div>
       {window.resonantDesktop && <button className="welcome-library" onClick={() => { setWelcome(false); setLibraryOpen(true) }}><Library size={16} /><span><strong>Install real instruments</strong><small>Violin, guitar, flute, tabla, pianos, drums and thousands more</small></span></button>}
       {window.resonantDesktop && <button className="welcome-library welcome-ai" onClick={() => { setWelcome(false); setAceStudioOpen(true) }}><Sparkles size={16} /><span><strong>{aceStep.installed ? 'Open ACE-Step Studio' : 'Optional: install local AI music'}</strong><small>Generate original songs and samples locally, then arrange and mix them here</small></span></button>}
+      {window.resonantDesktop && <button className="welcome-library welcome-ai" onClick={() => { setWelcome(false); setSeedVcStudioOpen(true) }}><AudioLines size={16} /><span><strong>{seedVc.installed ? 'Open Seed-VC Studio' : 'Optional: install personal singing voices'}</strong><small>Convert an isolated vocal into a consented reference voice locally</small></span></button>}
       <button className="welcome-library welcome-songwriter" onClick={() => { setWelcome(false); setSongwriterOpen(true) }}><PenLine size={16} /><span><strong>Develop lyrics in Songwriter Studio</strong><small>Build hooks, story, structure and singable English before generation</small></span></button>
       {window.resonantDesktop && <button className="welcome-library welcome-mcp" onClick={() => { setWelcome(false); setMcpSetupOpen(true) }}><Bot size={16} /><span><strong>Connect Codex, Claude, or another AI assistant</strong><small>Copy a ready-to-use local MCP configuration—no separate Node.js install</small></span></button>}
       <div className="quick-steps"><span><b>1</b> Choose a clip</span><span><b>2</b> Draw notes</span><span><b>3</b> Press Space</span><span><b>4</b> Capture to Arrange</span></div>
@@ -329,6 +342,7 @@ export default function App() {
     {libraryOpen && window.resonantDesktop && <InstrumentLibraryModal library={library} close={() => setLibraryOpen(false)} refresh={refreshLibrary} notify={notify} />}
     {songwriterOpen && <SongwriterStudioModal draft={store.project.songwriting ?? emptySongwritingDraft()} languages={listSongwritingLanguages()} close={() => setSongwriterOpen(false)} save={saveSongwritingDraft} sendToGenerator={sendDraftToAceStep} notify={notify} />}
     {aceStudioOpen && window.resonantDesktop && <AceStepStudioModal state={aceStep} close={() => setAceStudioOpen(false)} refresh={refreshAceStep} onGenerated={placeAceStepGeneration} notify={notify} draft={store.project.songwriting} />}
+    {seedVcStudioOpen && window.resonantDesktop && <SeedVcStudioModal state={seedVc} close={() => setSeedVcStudioOpen(false)} refresh={refreshSeedVc} onConverted={placeSeedVcConversion} notify={notify} selectedAudio={selectedClip?.type === 'audio' && selectedClip.asset ? { name: selectedClip.name, assetId: selectedClip.asset.id } : undefined} />}
     {mcpSetupOpen && window.resonantDesktop && <McpSetupModal close={() => setMcpSetupOpen(false)} notify={notify} />}
     <div className="toast-stack" aria-live="polite">{toasts.map((toast) => <div key={toast.id} className={`toast ${toast.tone}`}>{toast.message}</div>)}</div>
   </div>

@@ -13,7 +13,9 @@ import {
 import { ResonantWorkspace, RevisionConflictError } from './workspace'
 import { assignInstrument, getInstalledInstrument, listInstalledInstruments } from './instruments'
 import { aceStepState, generateAiMusic, type AiMusicRequest } from './aceStep'
+import { convertSingingVoice, seedVcState } from './seedVc'
 import { abandonDurableAiJob, collectDurableAiJob, getDurableAiJob, markDurableAiJobCollected, startDurableAiJob } from './aiJobs'
+import { abandonDurableVoiceJob, collectDurableVoiceJob, getDurableVoiceJob, markDurableVoiceJobCollected, runDurableVoiceJob, startDurableVoiceJob } from './voiceJobs'
 import { analyzeSongwriting, buildSongwritingPrompt, emptySongwritingDraft } from '../src/songwriting/core'
 import { getSongwritingLanguage, listSongwritingLanguages } from '../src/songwriting/registry'
 import type { SongwritingDraft } from '../src/songwriting/types'
@@ -36,6 +38,15 @@ const aiMusicFields = {
   audioCoverStrength: z.number().finite().min(0).max(1).optional().describe('Source-structure influence from 0 to 1. Start around 0.5 to 0.7 for a recognizable but transformed cover.'),
   repaintingStart: z.number().finite().min(0).max(600).optional().describe('Repaint interval start in seconds.'),
   repaintingEnd: z.number().finite().min(-1).max(600).optional().describe('Repaint interval end in seconds; -1 means the end of the source.'),
+}
+const voiceConversionFields = {
+  sourceAudioPath: z.string().min(1).max(500).describe('Relative path to an isolated source-vocal WAV inside RESONANT_PROJECT_ROOT.'),
+  referenceAudioPath: z.string().min(1).max(500).describe('Relative path to a clean 1–30 second reference WAV inside RESONANT_PROJECT_ROOT.'),
+  voiceRightsConfirmed: z.literal(true).describe('Required confirmation that the user owns this voice or has explicit permission to use it.'),
+  diffusionSteps: z.number().int().min(4).max(100).default(30),
+  semitoneShift: z.number().int().min(-24).max(24).default(0),
+  inferenceCfgRate: z.number().min(0).max(1).default(0.7),
+  lengthAdjust: z.number().min(0.5).max(2).default(1).describe('Performance duration multiplier: below 1 is faster/shorter; above 1 is slower/longer.'),
 }
 
 export async function resolveAiMusicAudio(workspace: ResonantWorkspace, request: AiMusicRequest): Promise<AiMusicRequest> {
@@ -67,7 +78,7 @@ function ensureExpected(actual: string, expected?: string) {
 export function createResonantServer(root?: string) {
   const workspace = new ResonantWorkspace(root)
   const server = new McpServer(
-    { name: 'resonant-mcp', version: '0.4.2' },
+    { name: 'resonant-mcp', version: '0.5.0' },
     { instructions: 'Inspect a project before changing it and pass expectedRevision on every mutation. For any lyric or song request, call list_songwriting_languages, match the requested language by ID, name, or alias, and use that pack’s coaching guide before drafting; never silently fall back to English. Then analyze and revise the lyric before audio generation. Build musical material with clip notes, arrange, validate, analyze, and render. All paths must stay inside RESONANT_PROJECT_ROOT. Prefer a new file unless the user explicitly asked to modify an existing project.' },
   )
 
@@ -83,6 +94,7 @@ export function createResonantServer(root?: string) {
     instruments: { sharedLibrary: true, formats: ['SF2', 'SF3', 'DLS', 'SFZ', 'WAV', 'WebAudioFont'], mcpDeterministicRender: ['SF2', 'SF3', 'DLS'], workflow: ['list_instruments', 'set_track_instrument', 'compose MIDI notes', 'arrange', 'analyze', 'render'] },
     songwriting: { languagePacks: listSongwritingLanguages().map((pack) => pack.id), discoverWith: 'list_songwriting_languages', guideResource: 'resonant://guide/songwriting', workflow: ['match the requested language by ID, name, or alias', 'use write_song prompt or the selected coaching guide', 'analyze_lyrics', 'revise', 'save_songwriting_draft', 'start_ai_generation'] },
     aiGeneration: { optional: true, local: true, engine: 'ACE-Step 1.5', tasks: ['text2music', 'cover', 'repaint'], audioConditioning: { referenceAudioPath: 'global timbre/style guidance; vocal identity is approximate', sourceAudioPath: 'structural source for cover or context source for repaint', format: 'existing WAV inside the configured project root' }, preferredWorkflow: ['start_ai_generation', 'poll get_ai_generation_status', 'collect_ai_generation', 'import_wav', 'arrange', 'mix', 'render'], synchronousCompatibilityTool: 'generate_ai_music' },
+    singingVoiceConversion: { optional: true, local: true, engine: 'Seed-VC', zeroShot: true, referenceSeconds: [1, 30], minimumVramGb: 6, recommendedVramGb: 8, consentRequired: true, controls: { diffusionSteps: [4, 100], semitoneShift: [-24, 24], inferenceCfgRate: [0, 1], lengthAdjust: [0.5, 2] }, preferredWorkflow: ['get_voice_conversion_provider_status', 'prepare an isolated source-vocal WAV and consented reference WAV', 'stop ACE-Step to release GPU memory', 'start_voice_conversion', 'poll get_voice_conversion_status', 'collect_voice_conversion', 'import_wav', 'mix', 'render'], synchronousCompatibilityTool: 'convert_singing_voice' },
     mix: { volume: [0, 1.5], pan: [-1, 1], delaySend: [0, 1], masterVolume: [0, 1.5], automation: [0, 2] },
     limits: { tracks: 64, clips: 1024, arrangementBlocks: 10000, renderBeats: 512, wavImportBytes: 100_000_000, historySnapshots: 20, historyBytes: 500_000_000 },
     workflow: ['inspect or create', 'write clip notes', 'arrange clips', 'set mix and automation', 'validate', 'analyze', 'render WAV'],
@@ -100,6 +112,61 @@ export function createResonantServer(root?: string) {
     description: 'Report whether the optional shared ACE-Step 1.5 runtime and models are installed and running.',
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
   }, async () => result({ generator: await aceStepState() }))
+
+  server.registerTool('get_voice_conversion_provider_status', {
+    title: 'Get local singing voice provider status',
+    description: 'Report whether the optional shared Seed-VC runtime is installed. Installation is managed by Seed-VC Studio in the desktop app.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
+  }, async () => result({ provider: await seedVcState() }))
+
+  server.registerTool('convert_singing_voice', {
+    title: 'Convert a singing voice with Seed-VC',
+    description: 'Blocking compatibility tool for Seed-VC. Prefer start_voice_conversion, short status polls, and collect_voice_conversion for work that must survive MCP timeouts or reconnects.',
+    inputSchema: { ...voiceConversionFields, outputPath: z.string().min(1).max(500), overwrite: z.boolean().default(false) },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false, idempotentHint: false },
+  }, async ({ sourceAudioPath, referenceAudioPath, outputPath, overwrite, ...settings }) => {
+    const sourcePath = await workspace.wavPath(sourceAudioPath, true), referencePath = await workspace.wavPath(referenceAudioPath, true)
+    const converted = await convertSingingVoice({ sourcePath, referencePath, ...settings })
+    const output = await workspace.writeWav(outputPath, converted.wav, overwrite)
+    return result({ ok: true, output, provider: converted.provider, revision: converted.revision, model: converted.model, settings: converted.settings, provenance: converted.provenance })
+  })
+
+  server.registerTool('start_voice_conversion', {
+    title: 'Start durable Seed-VC singing conversion',
+    description: 'Start an isolated local Seed-VC worker and return immediately. A stable idempotencyKey makes retries and reconnects reuse the original conversion instead of spending GPU time twice.',
+    inputSchema: { ...voiceConversionFields, idempotencyKey: z.string().trim().min(8).max(200).optional() },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+  }, async ({ sourceAudioPath, referenceAudioPath, idempotencyKey, ...settings }) => {
+    const request = { sourcePath: await workspace.wavPath(sourceAudioPath, true), referencePath: await workspace.wavPath(referenceAudioPath, true), ...settings }
+    const started = await startDurableVoiceJob(request, idempotencyKey)
+    return result({ ok: true, jobId: started.job.id, status: started.job.status, createdAt: started.job.createdAt, reused: started.reused, replacedJobId: started.replacedJobId, pollWith: 'get_voice_conversion_status' })
+  })
+
+  server.registerTool('get_voice_conversion_status', {
+    title: 'Get Seed-VC conversion progress',
+    description: 'Poll a durable Seed-VC job with a short request. Collect only after status is succeeded.',
+    inputSchema: { jobId: z.string().min(1).max(80) },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
+  }, async ({ jobId }) => result(await getDurableVoiceJob(jobId)))
+
+  server.registerTool('collect_voice_conversion', {
+    title: 'Collect completed Seed-VC conversion',
+    description: 'Copy a succeeded durable Seed-VC result to a WAV inside the confined project root.',
+    inputSchema: { jobId: z.string().min(1).max(80), outputPath: z.string().min(1).max(500), overwrite: z.boolean().default(false) },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false, idempotentHint: false },
+  }, async ({ jobId, outputPath, overwrite }) => {
+    const collected = await collectDurableVoiceJob(jobId)
+    const output = await workspace.writeWav(outputPath, collected.wav, overwrite)
+    await markDurableVoiceJobCollected(jobId, output.path)
+    return result({ ok: true, jobId, output, provider: collected.provider, revision: collected.revision, model: collected.model, settings: collected.settings, provenance: collected.provenance })
+  })
+
+  server.registerTool('abandon_voice_conversion', {
+    title: 'Abandon a Seed-VC conversion result',
+    description: 'Prevent collection of a durable Seed-VC job. Its isolated worker may finish an active GPU operation before exiting.',
+    inputSchema: { jobId: z.string().min(1).max(80) },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false, idempotentHint: true },
+  }, async ({ jobId }) => result({ ok: true, ...await abandonDurableVoiceJob(jobId) }))
 
   server.registerTool('generate_ai_music', {
     title: 'Generate original music with ACE-Step',
@@ -482,6 +549,13 @@ export function createResonantServer(root?: string) {
 }
 
 async function main() {
+  const voiceWorkerFlag = process.argv.indexOf('--seed-vc-worker')
+  if (voiceWorkerFlag >= 0) {
+    const jobId = process.argv[voiceWorkerFlag + 1]
+    if (!jobId) throw new Error('--seed-vc-worker requires a job ID.')
+    await runDurableVoiceJob(jobId)
+    return
+  }
   const rootFlag = process.argv.indexOf('--root')
   const root = rootFlag >= 0 ? process.argv[rootFlag + 1] : undefined
   if (rootFlag >= 0 && !root) throw new Error('--root requires a directory path.')

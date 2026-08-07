@@ -8,9 +8,11 @@
 
 ## Make complete songs locally.
 
-**Generate vocals or instrumentals. Multiple languages supported. Play real instruments. Arrange, mix, and export—all on your computer.**
+**Write, generate, perform, personalize vocals, arrange, mix, and export—all on your computer.**
 
 Resonant is a free, open-source AI music studio and production workstation for Windows. Think of it as a local alternative to cloud music generators such as Suno, with a real clip launcher, arrangement timeline, instrument library, mixer, and an MCP server for AI assistants.
+
+Generate complete songs locally with **ACE-Step 1.5**, then use **Seed-VC** to transform an isolated vocal performance into your own consented singing voice. Both providers are optional, managed from inside Resonant, and available to connected MCP assistants.
 
 **Produce your own club music — _Chrome Roller Rink: Midnight Club Mix_:**
 
@@ -32,6 +34,7 @@ https://github.com/user-attachments/assets/98258c39-3f07-4164-9376-f184fc288994
 
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows-73b9ff.svg)
 ![Runs locally](https://img.shields.io/badge/AI-local--first-aaa3ff.svg)
+![Personal singing voice](https://img.shields.io/badge/voice-Seed--VC-65dfd0.svg)
 ![MCP enabled](https://img.shields.io/badge/MCP-enabled-f2b86f.svg)
 
 </div>
@@ -46,6 +49,7 @@ Resonant brings the stages of making music into one continuous workflow:
 
 - **Write:** develop a hook, story, structure, rhyme, imagery, and generator-ready lyrics in Songwriter Studio.
 - **Generate:** optionally use ACE-Step 1.5 to create a complete original vocal song or instrumental locally.
+- **Personalize:** optionally use Seed-VC to transfer an isolated vocal performance into your own consented singing voice.
 - **Compose:** program drums, synths, sampled instruments, melodies, chords, and automation.
 - **Perform:** launch clips and scenes, improvise combinations, and capture the performance into a song.
 - **Arrange:** turn shared musical ideas into a complete linear structure without duplicating the source material.
@@ -53,6 +57,10 @@ Resonant brings the stages of making music into one continuous workflow:
 - **Finish:** analyze the mix, check vocal/lyric delivery, save safely, and export a deterministic stereo WAV.
 
 You can begin with a blank project, an imported recording, a MIDI idea, written lyrics, an AI prompt, or a request to your favorite coding assistant.
+
+```text
+Write lyrics → Generate with ACE-Step → Prepare an isolated vocal → Convert with Seed-VC → Arrange, mix, and export
+```
 
 
 ## Turn your AI assistant into a music producer
@@ -102,11 +110,21 @@ Instrument packs are stored once and reused across every project. Missing instru
 
 ### Local AI songs with ACE-Step
 
-Open **ACE-Step Studio** to install the optional local generator. Give it a musical direction, lyrics, tempo, duration, and vocal/instrumental choice. MCP clients can also pass a workspace WAV as reference audio for timbre/style guidance, as source audio for a cover, or as context for repainting a selected interval. The generated performance appears on Resonant’s Audio track, ready for arrangement and mixing.
+Use the clearly labeled **AI SONG** control in Resonant's header to install, start, or open the optional ACE-Step 1.5 generator. Give it a musical direction, lyrics, tempo, duration, and vocal/instrumental choice. MCP clients can also pass a workspace WAV as reference audio for timbre/style guidance, as source audio for a cover, or as context for repainting a selected interval. The generated performance appears on Resonant’s Audio track, ready for arrangement and mixing.
 
 For agent-guided generation, place or render the recording as a WAV inside the configured music workspace. Use `taskType: "text2music"` with `referenceAudioPath` to guide global timbre and vocal character, `taskType: "cover"` with `sourceAudioPath` to retain a recording’s musical structure, or `taskType: "repaint"` with `sourceAudioPath`, `repaintingStart`, and `repaintingEnd` to replace one passage. `audioCoverStrength` controls how tightly a cover follows its source. Reference audio is creative conditioning rather than guaranteed identity cloning; only use voices you own or have permission to use.
 
 The recommended Windows laptop profile uses ACE-Step 2B Turbo, the 0.6B planning model, PyTorch, CPU offload, and batch size 1. An NVIDIA GPU with roughly 6–8 GB VRAM is recommended. The initial model download is large; generation runs locally afterward.
+
+### Personal singing voices with Seed-VC
+
+Use the clearly labeled **MY VOICE** control in Resonant's header to install, start, or open the optional Seed-VC provider. Choose an isolated source vocal, choose a clean 1–30 second reference recording, confirm that you own the voice or have explicit permission to use it, and convert the performance into a new WAV on Resonant’s Audio track. Melody, timing, phrasing, and source pitch are retained through Seed-VC’s singing/F0 conversion path.
+
+An NVIDIA CUDA GPU with 6 GB VRAM is the practical minimum and 8 GB is recommended. Resonant stops ACE-Step before conversion to release GPU memory. The managed Windows installation pins archived Seed-VC revision `51383efd921027683c89e5348211d93ff12ac2a8` with PyTorch 2.4 CUDA 12.4. The runtime occupies roughly 5 GB after temporary installer caches are cleaned; model weights download on first conversion and remain local afterward. Failed or interrupted installations can be retried safely. Use a separated vocal stem rather than a full mix.
+
+Connected MCP agents can inspect the provider, start a durable conversion, poll its status, collect the result, or abandon it without holding one request open for several minutes. Agents can adjust quality, pitch, guidance, and performance length from 0.5× to 2×. Source, reference, and output must be WAV files inside the configured music workspace, and `voiceRightsConfirmed: true` is mandatory. The blocking `convert_singing_voice` tool remains for compatibility. Seed-VC is GPL-3.0 licensed and installed separately from Resonant.
+
+> Voice conversion is consent-first: only use your own voice or a voice you have explicit permission to use. Resonant records source/reference hashes and conversion provenance alongside the result.
 
 ### Songwriter Studio
 
@@ -124,9 +142,13 @@ Six replaceable songwriting packs ship with Resonant: English, Hindi/Hindustani,
 | --- | --- |
 | ![Linear arrangement](docs/assets/screenshots/arrange.png) | ![Resonant mixer](docs/assets/screenshots/mixer.png) |
 
-| Local AI | Instrument Library |
+| Local AI songs | Personal singing voices |
 | --- | --- |
-| ![ACE-Step Studio](docs/assets/screenshots/ace-step-studio.png) | ![Instrument Library](docs/assets/screenshots/instrument-library.png) |
+| ![ACE-Step Studio](docs/assets/screenshots/ace-step-studio.png) | ![Seed-VC Studio](docs/assets/screenshots/seed-vc-studio.png) |
+
+| Instrument Library |
+| --- |
+| ![Instrument Library](docs/assets/screenshots/instrument-library.png) |
 
 ## Install Resonant
 
@@ -135,7 +157,7 @@ Six replaceable songwriting packs ship with Resonant: English, Hindi/Hindustani,
 1. Open this repository’s **Releases** page and choose the latest release.
 2. Download `Resonant-Setup-x.y.z-Windows-x64.exe`.
 3. Run the installer and choose the installation folder.
-4. Launch Resonant and start with the built-in groove, install real instruments, or optionally install ACE-Step.
+4. Launch Resonant and start with the built-in groove, install real instruments, or use the **AI SONG** and **MY VOICE** controls to install ACE-Step 1.5 and Seed-VC when you need them.
 
 The builds are currently unsigned. Windows SmartScreen may show an “unrecognized app” warning; choose **More info → Run anyway** only after confirming the filename and SHA-256 checksum published with the release.
 
@@ -173,7 +195,9 @@ If you prefer not to install Git, download **Code → Download ZIP**, extract it
 
 - Windows 10 or 11, x64
 - Base workstation: modern multi-core CPU and audio output
-- Local AI generation: NVIDIA GPU with approximately 6–8 GB VRAM recommended, plus substantial free disk space for the optional runtime and models
+- ACE-Step generation: NVIDIA GPU with approximately 6–8 GB VRAM recommended
+- Seed-VC singing-voice conversion: NVIDIA CUDA GPU with 6 GB VRAM practical minimum and 8 GB recommended
+- Substantial free disk space for each optional provider, its Python environment, and model weights
 - No account, API key, subscription, or internet connection after optional downloads complete
 
 macOS and Linux builds are not currently published.
@@ -189,7 +213,7 @@ macOS and Linux builds are not currently published.
 
 ## Local-first by design
 
-Resonant sends no music, recordings, lyrics, project data, prompts, or analytics to a hosted Resonant service. Network access is used only when you explicitly download instruments, ACE-Step, model files, or other optional resources.
+Resonant sends no music, recordings, lyrics, project data, prompts, or analytics to a hosted Resonant service. Network access is used only when you explicitly download instruments, ACE-Step, Seed-VC, model files, or other optional resources.
 
 Recorded and imported audio is stored once in a content-addressed shared library. Projects keep a small hash reference, avoiding huge duplicated project and history files. Saves are atomic, autosave recovery is explicit, and older embedded-audio projects remain readable.
 

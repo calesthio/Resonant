@@ -2,6 +2,7 @@ export {}
 
 import type { InstrumentDownloadProgress, InstrumentLibraryState, InstrumentSummary, ResolvedInstrument } from './domain/instruments'
 import type { AceStepGenerateRequest, AceStepGeneration, AceStepProgress, AceStepState } from './domain/aceStep'
+import type { SeedVcConversion, SeedVcConvertRequest, SeedVcProgress, SeedVcState } from './domain/seedVc'
 
 declare global {
   interface Window {
@@ -35,6 +36,12 @@ declare global {
       generateWithAceStep(request: AceStepGenerateRequest): Promise<AceStepGeneration>
       removeAceStep(): Promise<boolean>
       onAceStepProgress(callback: (payload: AceStepProgress) => void): () => void
+      getSeedVcState(): Promise<SeedVcState>
+      installSeedVc(): Promise<SeedVcState>
+      chooseSeedVcAudio(role: 'source' | 'reference'): Promise<{ canceled: boolean; path?: string; name?: string }>
+      convertWithSeedVc(request: SeedVcConvertRequest): Promise<SeedVcConversion>
+      removeSeedVc(): Promise<boolean>
+      onSeedVcProgress(callback: (payload: SeedVcProgress) => void): () => void
     }
   }
 }

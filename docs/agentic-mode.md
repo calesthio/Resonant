@@ -19,6 +19,7 @@ Agent mode lets a local MCP-capable host compose, arrange, mix, inspect, and ren
 | Discovery | `get_capabilities`, `list_projects`, `inspect_project`, `validate_project` | Learn supported operations and inspect bounded project data without returning embedded PCM |
 | Songwriting | `list_songwriting_languages`, `analyze_lyrics`, `save_songwriting_draft`; `write_song` prompt | Draft, revise, analyze, and persist generator-ready lyrics through replaceable language packs |
 | AI generation | `start_ai_generation`, `get_ai_generation_status`, `collect_ai_generation`, `abandon_ai_generation` | Run optional ACE-Step work as durable jobs without holding one MCP request open; `generate_ai_music` remains a blocking compatibility tool |
+| Singing voice | `get_voice_conversion_provider_status`, `start_voice_conversion`, `get_voice_conversion_status`, `collect_voice_conversion`, `abandon_voice_conversion` | Run optional Seed-VC work as durable isolated jobs; `convert_singing_voice` remains a blocking compatibility tool |
 | Composition | `create_project`, `set_project_settings`, `set_clip_notes`, `duplicate_clip` | Establish tempo/loop and author 16-step drum or melodic material |
 | Arrangement | `set_arrangement` | Place shared clip references on the linear timeline |
 | Mixing | `set_track_mix`, `set_clip_automation`, `analyze_mix` | Shape levels, pan, delay, instrument settings, automation, and inspect rendered measurements |
@@ -29,6 +30,7 @@ Agent mode lets a local MCP-capable host compose, arrange, mix, inspect, and ren
 
 - `RESONANT_PROJECT_ROOT` is the only readable/writable root. Relative paths are preferred; traversal and symlink escape attempts fail.
 - ACE-Step generation can condition on existing workspace WAV files. Use `referenceAudioPath` with `text2music` for global timbre/style guidance, including an approximate vocal character. Use `sourceAudioPath` with `cover` to retain whole-song structure or with `repaint` plus a time interval to regenerate part of an existing recording. Reference conditioning is not a guarantee of exact voice cloning, and agents should only use voices the user owns or has permission to use.
+- Seed-VC requires an isolated source-vocal WAV and a clean 1–30 second reference WAV inside the workspace. `voiceRightsConfirmed` must be exactly `true`. Stop ACE-Step before conversion so both engines do not compete for GPU memory. Prefer `start_voice_conversion`, poll `get_voice_conversion_status`, and call `collect_voice_conversion` after success. Stable idempotency keys prevent reconnects from duplicating GPU work. `lengthAdjust` ranges from 0.5 to 2.0; values below 1 shorten/speed up the performance and values above 1 lengthen/slow it. The synchronous `convert_singing_voice` tool remains for compatibility.
 - Project writes are atomic and keep at most 20 pre-change snapshots, capped at 500 MB total per project, under `.resonant-history`.
 - No tool deletes projects, runs commands, opens network connections, starts recording, or controls arbitrary applications.
 - Tools cap project, note, arrangement, audio-import, and render sizes before allocating large buffers.
@@ -54,7 +56,7 @@ To run the server manually for another MCP host:
 node mcp-dist/server.mjs --root "C:\path\to\your\music-workspace"
 ```
 
-STDOUT is reserved for MCP JSON-RPC; diagnostics go to STDERR. The server performs no network requests.
+STDOUT is reserved for MCP JSON-RPC; diagnostics go to STDERR. The server performs no network requests except when an explicitly invoked, separately installed local provider downloads its own missing model files.
 
 ## Desktop coordination
 

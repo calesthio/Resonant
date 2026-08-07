@@ -14,6 +14,7 @@ const reportPath = path.join(evidence, 'electron-smoke.json')
 const screenshots = {
   instrumentLibrary: path.join(evidence, 'electron-instrument-library.png'),
   aceStepStudio: path.join(evidence, 'electron-ace-step-studio.png'),
+  seedVcStudio: path.join(evidence, 'electron-seed-vc-studio.png'),
   songwriterStudio: path.join(evidence, 'electron-songwriter-studio.png'),
   mcpSetup: path.join(evidence, 'electron-mcp-setup.png'),
   flowAudio: path.join(evidence, 'electron-flow-audio.png'),
@@ -26,11 +27,13 @@ let currentStage = 'startup'
 const instrumentNetworkSmoke = process.env.RESONANT_SMOKE_INSTRUMENTS === '1'
 const instrumentSmokeRoot = instrumentNetworkSmoke ? path.join(os.tmpdir(), `resonant-electron-instruments-${process.pid}`) : null
 const aceSmokeRoot = path.join(os.tmpdir(), `resonant-electron-ace-${process.pid}`)
+const seedVcSmokeRoot = path.join(os.tmpdir(), `resonant-electron-seed-vc-${process.pid}`)
 const audioAssetSmokeRoot = path.join(os.tmpdir(), `resonant-electron-audio-assets-${process.pid}`)
 
 process.env.RESONANT_SMOKE = '1'
 if (instrumentSmokeRoot) process.env.RESONANT_INSTRUMENT_ROOT = instrumentSmokeRoot
 process.env.RESONANT_ACE_ROOT = aceSmokeRoot
+process.env.RESONANT_SEED_VC_ROOT = seedVcSmokeRoot
 process.env.RESONANT_AUDIO_ASSET_ROOT = audioAssetSmokeRoot
 app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
 app.commandLine.appendSwitch('use-fake-device-for-media-stream')
@@ -110,6 +113,12 @@ async function run() {
   window.webContents.on('console-message', (_event, details) => {
     if (details.level === 'error') failures.push(`console: ${details.message}`)
   })
+  await waitFor(window, `[...document.querySelectorAll('.ai-tool-button')].map((button) => button.textContent).join(' ').includes('AI SONG') && [...document.querySelectorAll('.ai-tool-button')].map((button) => button.textContent).join(' ').includes('MY VOICE') && [...document.querySelectorAll('.ai-tool-button')].every((button) => button.textContent.includes('INSTALL'))`, 'persistent AI tool discovery and install status')
+  window.setSize(1080, 760)
+  await delay(400)
+  const narrowAiTools = await evaluate(window, `({ width: innerWidth, tools: [...document.querySelectorAll('.ai-tool-button')].map((button) => ({ text: button.textContent, left: button.getBoundingClientRect().left, right: button.getBoundingClientRect().right })) })`, 'inspect narrow AI tool layout')
+  if (narrowAiTools.tools.length !== 2 || narrowAiTools.tools.some((button) => button.left < 0 || button.right > narrowAiTools.width) || !narrowAiTools.tools.map((button) => button.text).join(' ').includes('AI SONG') || !narrowAiTools.tools.map((button) => button.text).join(' ').includes('MY VOICE')) throw new Error(`AI tool labels overflowed at narrow desktop width: ${JSON.stringify(narrowAiTools)}`)
+  window.setSize(1480, 940)
 
   await evaluate(window, `(() => {
     const button = [...document.querySelectorAll('button')].find((item) => item.textContent.includes('Install real instruments'));
@@ -159,6 +168,28 @@ async function run() {
   await waitFor(window, `!document.querySelector('.ace-studio-modal')`, 'closed ACE-Step Studio')
   await evaluate(window, `document.querySelector('button[aria-label="Open quick start"]').click(); true`, 'reopen quick start after ACE-Step Studio')
   await waitFor(window, `document.body.textContent.includes('Open starter groove')`, 'quick start reopened after ACE-Step Studio')
+
+  await evaluate(window, `(() => {
+    const button = [...document.querySelectorAll('button')].find((item) => item.textContent.includes('Optional: install personal singing voices'));
+    if (!button) throw new Error('First-run Seed-VC button missing'); button.click(); return true;
+  })()`, 'open first-run Seed-VC Studio')
+  await waitFor(window, `document.querySelector('.seed-vc-modal')?.textContent.includes('INSTALL SEED-VC') && document.querySelector('.seed-vc-modal')?.textContent.includes('I own this voice') === false`, 'Seed-VC optional install modal')
+  await evaluate(window, `(() => {
+    const root = document.querySelector('.seed-vc-modal .ace-status-strip code');
+    if (!root) throw new Error('Seed-VC storage path missing');
+    root.textContent = 'C:/ResonantData/voice-providers/seed-vc'; root.title = root.textContent;
+    const visible = root.closest('.seed-vc-modal')?.textContent || '';
+    if (${privatePathMarkersLiteral}.some((marker) => visible.includes(marker))) throw new Error('Private home path remained in Seed-VC screenshot');
+    return true;
+  })()`, 'sanitize Seed-VC screenshot paths')
+  await capture(window, screenshots.seedVcStudio)
+  await evaluate(window, `(() => {
+    const button = [...document.querySelectorAll('.seed-vc-modal button')].find((item) => item.textContent.trim() === 'DONE');
+    if (!button) throw new Error('Seed-VC Studio Done button missing'); button.click(); return true;
+  })()`, 'close Seed-VC Studio')
+  await waitFor(window, `!document.querySelector('.seed-vc-modal')`, 'closed Seed-VC Studio')
+  await evaluate(window, `document.querySelector('button[aria-label="Open quick start"]').click(); true`, 'reopen quick start after Seed-VC Studio')
+  await waitFor(window, `document.body.textContent.includes('Open starter groove')`, 'quick start reopened after Seed-VC Studio')
 
   await evaluate(window, `(() => {
     const button = [...document.querySelectorAll('button')].find((item) => item.textContent.includes('Develop lyrics in Songwriter Studio'));
@@ -225,7 +256,7 @@ async function run() {
     const configuration = document.querySelector('.mcp-setup-modal pre code');
     if (!workspace || !configuration) throw new Error('MCP screenshot fields missing');
     workspace.textContent = 'C:/Music/ResonantProjects';
-    configuration.textContent = '[mcp_servers.resonant]\\ncommand = "C:/Resonant/electron.exe"\\nargs = ["C:/Resonant/mcp-dist/server.mjs", "--root", "C:/Music/ResonantProjects"]\\nenv = { ELECTRON_RUN_AS_NODE = "1" }\\nstartup_timeout_sec = 20\\ntool_timeout_sec = 180';
+    configuration.textContent = '[mcp_servers.resonant]\\ncommand = "C:/Resonant/electron.exe"\\nargs = ["C:/Resonant/mcp-dist/server.mjs", "--root", "C:/Music/ResonantProjects"]\\nenv = { ELECTRON_RUN_AS_NODE = "1" }\\nstartup_timeout_sec = 20\\ntool_timeout_sec = 600';
     const visible = workspace.closest('.mcp-setup-modal')?.textContent || '';
     if (${privatePathMarkersLiteral}.some((marker) => visible.includes(marker))) throw new Error('Private home path remained in MCP screenshot');
     return true;
@@ -411,6 +442,7 @@ async function run() {
   await fs.writeFile(reportPath, JSON.stringify(report, null, 2))
   if (instrumentSmokeRoot) await fs.rm(instrumentSmokeRoot, { recursive: true, force: true })
   await fs.rm(aceSmokeRoot, { recursive: true, force: true })
+  await fs.rm(seedVcSmokeRoot, { recursive: true, force: true })
   await fs.rm(audioAssetSmokeRoot, { recursive: true, force: true })
   process.stdout.write(JSON.stringify(report))
 }
@@ -420,6 +452,7 @@ app.whenReady().then(() => run()).then(() => app.quit()).catch(async (error) => 
   await fs.mkdir(evidence, { recursive: true }).catch(() => undefined)
   await fs.writeFile(reportPath, JSON.stringify(report, null, 2)).catch(() => undefined)
   await fs.rm(audioAssetSmokeRoot, { recursive: true, force: true }).catch(() => undefined)
+  await fs.rm(seedVcSmokeRoot, { recursive: true, force: true }).catch(() => undefined)
   process.stderr.write(`${JSON.stringify(report)}\n`)
   app.exit(1)
 })

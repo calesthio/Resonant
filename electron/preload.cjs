@@ -42,4 +42,14 @@ contextBridge.exposeInMainWorld('resonantDesktop', {
     ipcRenderer.on('ace:progress', listener)
     return () => ipcRenderer.removeListener('ace:progress', listener)
   },
+  getSeedVcState: () => ipcRenderer.invoke('seed-vc:state'),
+  installSeedVc: () => ipcRenderer.invoke('seed-vc:install'),
+  chooseSeedVcAudio: (role) => ipcRenderer.invoke('seed-vc:choose-audio', role),
+  convertWithSeedVc: (request) => ipcRenderer.invoke('seed-vc:convert', request),
+  removeSeedVc: () => ipcRenderer.invoke('seed-vc:remove'),
+  onSeedVcProgress: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('seed-vc:progress', listener)
+    return () => ipcRenderer.removeListener('seed-vc:progress', listener)
+  },
 })
