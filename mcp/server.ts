@@ -12,7 +12,7 @@ import {
 } from './music'
 import { ResonantWorkspace, RevisionConflictError } from './workspace'
 import { assignInstrument, getInstalledInstrument, listInstalledInstruments } from './instruments'
-import { aceStepState, generateAiMusic } from './aceStep'
+import { aceStepState, generateAiMusic, type AiMusicRequest } from './aceStep'
 import { abandonDurableAiJob, collectDurableAiJob, getDurableAiJob, markDurableAiJobCollected, startDurableAiJob } from './aiJobs'
 import { analyzeSongwriting, buildSongwritingPrompt, emptySongwritingDraft } from '../src/songwriting/core'
 import { getSongwritingLanguage, listSongwritingLanguages } from '../src/songwriting/registry'
@@ -29,6 +29,27 @@ const aiMusicFields = {
   duration: z.number().finite().min(10).max(180).default(30), bpm: z.number().finite().min(30).max(300).optional(),
   keyScale: z.string().trim().max(40).optional(), seed: z.number().int().min(0).max(2147483647).optional(),
   language: z.string().trim().min(2).max(80).optional().describe('Installed songwriting language ID, locale, name, or alias. Native section tags are translated for ACE-Step without changing sung words.'),
+  taskType: z.enum(['text2music', 'cover', 'repaint']).default('text2music').describe('ACE-Step Turbo task. Use text2music with referenceAudioPath for timbre/style guidance, cover with sourceAudioPath for whole-song structural guidance, or repaint with sourceAudioPath for a selected interval.'),
+  referenceAudioPath: z.string().min(1).max(500).optional().describe('Relative path to an existing WAV inside RESONANT_PROJECT_ROOT. Guides global timbre and style, including vocal character, but is not guaranteed to clone vocal identity exactly.'),
+  sourceAudioPath: z.string().min(1).max(500).optional().describe('Relative path to an existing WAV inside RESONANT_PROJECT_ROOT. Required for cover and repaint; preserves source structure or surrounding context.'),
+  instruction: z.string().trim().min(3).max(1000).optional().describe('Optional ACE-Step edit instruction for cover or repaint.'),
+  audioCoverStrength: z.number().finite().min(0).max(1).optional().describe('Source-structure influence from 0 to 1. Start around 0.5 to 0.7 for a recognizable but transformed cover.'),
+  repaintingStart: z.number().finite().min(0).max(600).optional().describe('Repaint interval start in seconds.'),
+  repaintingEnd: z.number().finite().min(-1).max(600).optional().describe('Repaint interval end in seconds; -1 means the end of the source.'),
+}
+
+export async function resolveAiMusicAudio(workspace: ResonantWorkspace, request: AiMusicRequest): Promise<AiMusicRequest> {
+  const taskType = request.taskType ?? 'text2music'
+  if ((taskType === 'cover' || taskType === 'repaint') && !request.sourceAudioPath) throw new Error(`${taskType} generation requires sourceAudioPath.`)
+  if (taskType === 'text2music' && request.sourceAudioPath) throw new Error('sourceAudioPath is only valid for cover or repaint generation. Use referenceAudioPath to guide text-to-music timbre or style.')
+  if (taskType !== 'repaint' && (request.repaintingStart !== undefined || request.repaintingEnd !== undefined)) throw new Error('Repainting intervals are only valid when taskType is repaint.')
+  if (taskType === 'repaint' && request.repaintingEnd !== undefined && request.repaintingEnd !== -1 && request.repaintingEnd <= (request.repaintingStart ?? 0)) throw new Error('repaintingEnd must be greater than repaintingStart, or -1 for the end of the source.')
+  return {
+    ...request,
+    taskType,
+    referenceAudioPath: request.referenceAudioPath ? await workspace.wavPath(request.referenceAudioPath, true) : undefined,
+    sourceAudioPath: request.sourceAudioPath ? await workspace.wavPath(request.sourceAudioPath, true) : undefined,
+  }
 }
 
 function result(data: Record<string, unknown>) {
@@ -46,7 +67,7 @@ function ensureExpected(actual: string, expected?: string) {
 export function createResonantServer(root?: string) {
   const workspace = new ResonantWorkspace(root)
   const server = new McpServer(
-    { name: 'resonant-mcp', version: '0.4.0' },
+    { name: 'resonant-mcp', version: '0.4.2' },
     { instructions: 'Inspect a project before changing it and pass expectedRevision on every mutation. For any lyric or song request, call list_songwriting_languages, match the requested language by ID, name, or alias, and use that pack’s coaching guide before drafting; never silently fall back to English. Then analyze and revise the lyric before audio generation. Build musical material with clip notes, arrange, validate, analyze, and render. All paths must stay inside RESONANT_PROJECT_ROOT. Prefer a new file unless the user explicitly asked to modify an existing project.' },
   )
 
@@ -61,7 +82,7 @@ export function createResonantServer(root?: string) {
     tracks: ['drum', 'synth', 'sampler', 'audio'], waveforms: ['sine', 'triangle', 'sawtooth', 'square'],
     instruments: { sharedLibrary: true, formats: ['SF2', 'SF3', 'DLS', 'SFZ', 'WAV', 'WebAudioFont'], mcpDeterministicRender: ['SF2', 'SF3', 'DLS'], workflow: ['list_instruments', 'set_track_instrument', 'compose MIDI notes', 'arrange', 'analyze', 'render'] },
     songwriting: { languagePacks: listSongwritingLanguages().map((pack) => pack.id), discoverWith: 'list_songwriting_languages', guideResource: 'resonant://guide/songwriting', workflow: ['match the requested language by ID, name, or alias', 'use write_song prompt or the selected coaching guide', 'analyze_lyrics', 'revise', 'save_songwriting_draft', 'start_ai_generation'] },
-    aiGeneration: { optional: true, local: true, engine: 'ACE-Step 1.5', preferredWorkflow: ['start_ai_generation', 'poll get_ai_generation_status', 'collect_ai_generation', 'import_wav', 'arrange', 'mix', 'render'], synchronousCompatibilityTool: 'generate_ai_music' },
+    aiGeneration: { optional: true, local: true, engine: 'ACE-Step 1.5', tasks: ['text2music', 'cover', 'repaint'], audioConditioning: { referenceAudioPath: 'global timbre/style guidance; vocal identity is approximate', sourceAudioPath: 'structural source for cover or context source for repaint', format: 'existing WAV inside the configured project root' }, preferredWorkflow: ['start_ai_generation', 'poll get_ai_generation_status', 'collect_ai_generation', 'import_wav', 'arrange', 'mix', 'render'], synchronousCompatibilityTool: 'generate_ai_music' },
     mix: { volume: [0, 1.5], pan: [-1, 1], delaySend: [0, 1], masterVolume: [0, 1.5], automation: [0, 2] },
     limits: { tracks: 64, clips: 1024, arrangementBlocks: 10000, renderBeats: 512, wavImportBytes: 100_000_000, historySnapshots: 20, historyBytes: 500_000_000 },
     workflow: ['inspect or create', 'write clip notes', 'arrange clips', 'set mix and automation', 'validate', 'analyze', 'render WAV'],
@@ -86,7 +107,7 @@ export function createResonantServer(root?: string) {
     inputSchema: { outputPath: z.string().min(1).max(500), ...aiMusicFields, overwrite: z.boolean().default(false) },
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true, idempotentHint: false },
   }, async ({ outputPath, overwrite, ...request }) => {
-    const generated = await generateAiMusic(request)
+    const generated = await generateAiMusic(await resolveAiMusicAudio(workspace, request))
     const output = await workspace.writeWav(outputPath, generated.wav, overwrite)
     return result({ ok: true, output, generator: 'ACE-Step 1.5', taskId: generated.taskId, metadata: generated.metadata, seed: generated.seed, models: { dit: generated.ditModel, language: generated.languageModel } })
   })
@@ -97,7 +118,7 @@ export function createResonantServer(root?: string) {
     inputSchema: { ...aiMusicFields, idempotencyKey: z.string().trim().min(8).max(200).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: true },
   }, async ({ idempotencyKey, ...request }) => {
-    const started = await startDurableAiJob(request, idempotencyKey)
+    const started = await startDurableAiJob(await resolveAiMusicAudio(workspace, request), idempotencyKey)
     return result({ ok: true, jobId: started.job.id, status: 'queued', createdAt: started.job.createdAt, reused: started.reused, replacedJobId: started.replacedJobId, pollWith: 'get_ai_generation_status' })
   })
 

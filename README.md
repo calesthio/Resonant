@@ -102,7 +102,9 @@ Instrument packs are stored once and reused across every project. Missing instru
 
 ### Local AI songs with ACE-Step
 
-Open **ACE-Step Studio** to install the optional local generator. Give it a musical direction, lyrics, tempo, duration, and vocal/instrumental choice. The generated performance appears on Resonant’s Audio track, ready for arrangement and mixing.
+Open **ACE-Step Studio** to install the optional local generator. Give it a musical direction, lyrics, tempo, duration, and vocal/instrumental choice. MCP clients can also pass a workspace WAV as reference audio for timbre/style guidance, as source audio for a cover, or as context for repainting a selected interval. The generated performance appears on Resonant’s Audio track, ready for arrangement and mixing.
+
+For agent-guided generation, place or render the recording as a WAV inside the configured music workspace. Use `taskType: "text2music"` with `referenceAudioPath` to guide global timbre and vocal character, `taskType: "cover"` with `sourceAudioPath` to retain a recording’s musical structure, or `taskType: "repaint"` with `sourceAudioPath`, `repaintingStart`, and `repaintingEnd` to replace one passage. `audioCoverStrength` controls how tightly a cover follows its source. Reference audio is creative conditioning rather than guaranteed identity cloning; only use voices you own or have permission to use.
 
 The recommended Windows laptop profile uses ACE-Step 2B Turbo, the 0.6B planning model, PyTorch, CPU offload, and batch size 1. An NVIDIA GPU with roughly 6–8 GB VRAM is recommended. The initial model download is large; generation runs locally afterward.
 

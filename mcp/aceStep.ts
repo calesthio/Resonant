@@ -99,6 +99,13 @@ export interface AiMusicRequest {
   keyScale?: string
   seed?: number
   language?: string
+  taskType?: 'text2music' | 'cover' | 'repaint'
+  referenceAudioPath?: string
+  sourceAudioPath?: string
+  instruction?: string
+  audioCoverStrength?: number
+  repaintingStart?: number
+  repaintingEnd?: number
 }
 
 export function generationPayload(request: AiMusicRequest) {
@@ -108,6 +115,9 @@ export function generationPayload(request: AiMusicRequest) {
     model: 'acestep-v15-turbo', lm_model_path: 'acestep-5Hz-lm-0.6B', lm_backend: 'pt', audio_duration: duration,
     bpm: request.bpm, key_scale: request.keyScale || '', time_signature: '4', inference_steps: 8, batch_size: 1, audio_format: 'wav',
     use_random_seed: request.seed === undefined, seed: request.seed ?? -1, use_tiled_decode: true,
+    task_type: request.taskType ?? 'text2music', reference_audio_path: request.referenceAudioPath, src_audio_path: request.sourceAudioPath,
+    instruction: request.instruction, audio_cover_strength: request.audioCoverStrength,
+    repainting_start: request.repaintingStart, repainting_end: request.repaintingEnd,
   }
 }
 

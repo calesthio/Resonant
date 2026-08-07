@@ -33,7 +33,7 @@ nodes:
     depends_on: [workflows]
     acceptance: [portable and installer builds launch, documentation is accurate]
     verification: [npm run package:release]
-    evidence: [scripts/package-windows.mjs, docs/release-notes-0.4.1.md]
+    evidence: [scripts/package-windows.mjs, docs/release-notes-0.4.2.md]
     risks: [unsigned executable warning]
     decision_refs: []
   - id: mcp-contract

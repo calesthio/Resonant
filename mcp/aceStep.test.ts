@@ -44,4 +44,25 @@ describe('ACE-Step MCP generation boundary', () => {
     })
     expect(payload.lyrics).toBe('[Chorus]\n잔상, 잔상, 날 붙잡지 마\n\n[Final Chorus]\nI finally see me')
   })
+
+  it('passes reference and source audio controls to the ACE-Step API payload', () => {
+    const payload = generationPayload({
+      prompt: 'Warm intimate soul arrangement', instrumental: false, lyrics: '[Verse]\nStay close',
+      taskType: 'cover', referenceAudioPath: 'C:\\music\\my-voice.wav', sourceAudioPath: 'C:\\music\\guide.wav',
+      audioCoverStrength: 0.65,
+    })
+    expect(payload).toMatchObject({
+      task_type: 'cover', reference_audio_path: 'C:\\music\\my-voice.wav', src_audio_path: 'C:\\music\\guide.wav', audio_cover_strength: 0.65,
+    })
+  })
+
+  it('passes repaint interval controls to the ACE-Step API payload', () => {
+    const payload = generationPayload({
+      prompt: 'Repair the vocal transition', taskType: 'repaint', sourceAudioPath: 'C:\\music\\take.wav',
+      instruction: 'Regenerate only the selected phrase', repaintingStart: 12.5, repaintingEnd: 18,
+    })
+    expect(payload).toMatchObject({
+      task_type: 'repaint', instruction: 'Regenerate only the selected phrase', repainting_start: 12.5, repainting_end: 18,
+    })
+  })
 })

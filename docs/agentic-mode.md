@@ -28,6 +28,7 @@ Agent mode lets a local MCP-capable host compose, arrange, mix, inspect, and ren
 ## Safety and limits
 
 - `RESONANT_PROJECT_ROOT` is the only readable/writable root. Relative paths are preferred; traversal and symlink escape attempts fail.
+- ACE-Step generation can condition on existing workspace WAV files. Use `referenceAudioPath` with `text2music` for global timbre/style guidance, including an approximate vocal character. Use `sourceAudioPath` with `cover` to retain whole-song structure or with `repaint` plus a time interval to regenerate part of an existing recording. Reference conditioning is not a guarantee of exact voice cloning, and agents should only use voices the user owns or has permission to use.
 - Project writes are atomic and keep at most 20 pre-change snapshots, capped at 500 MB total per project, under `.resonant-history`.
 - No tool deletes projects, runs commands, opens network connections, starts recording, or controls arbitrary applications.
 - Tools cap project, note, arrangement, audio-import, and render sizes before allocating large buffers.
