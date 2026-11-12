@@ -8,7 +8,8 @@ import { renderProjectWithInstruments } from './domain/instrumentRender'
 import type { InstrumentLibraryState } from './domain/instruments'
 import { EMPTY_ACE_STEP_STATE, type AceStepGeneration, type AceStepState } from './domain/aceStep'
 import { EMPTY_SEED_VC_STATE, type SeedVcConversion, type SeedVcState } from './domain/seedVc'
-import { formatBeat } from './domain/time'
+import { formatBeat, formatElapsed } from './domain/time'
+import { isEditingText } from './domain/arrangementEditing'
 import type { AudioClip, EngineState, Project, Track, Workspace } from './domain/types'
 import { useAppStore } from './store/AppStore'
 import { ArrangementView } from './components/ArrangementView'
@@ -106,6 +107,12 @@ export default function App() {
     liveEngine.stop()
     setEngine((state) => ({ ...state, playing: false, beat: 0 }))
   }, [])
+
+  const seek = useCallback((beat: number) => {
+    if (engine.recording) { notify('Stop recording before moving the playhead.', 'info'); return }
+    liveEngine.stop()
+    setEngine((state) => ({ ...state, playing: false, mode: 'arrangement', beat: Math.max(0, Math.min(16384, beat)) }))
+  }, [engine.recording, notify])
 
   const togglePlay = useCallback(async () => {
     if (engine.playing) { liveEngine.stop(); setEngine((state) => ({ ...state, playing: false })); return }
@@ -272,8 +279,7 @@ export default function App() {
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return
+      if (event.defaultPrevented || isEditingText(event.target) || document.querySelector('[role="dialog"]')) return
       if (event.code === 'Space') { event.preventDefault(); void togglePlay() }
       if (event.ctrlKey && event.key.toLowerCase() === 's') { event.preventDefault(); void save(event.shiftKey) }
       if (event.ctrlKey && event.key.toLowerCase() === 'o') { event.preventDefault(); void open() }
@@ -288,9 +294,9 @@ export default function App() {
   const latency = liveEngine.getLatency()
   const workspaceContent = useMemo(() => {
     if (store.workspace === 'flow') return <FlowView engine={engine} setEngine={setEngine} notify={notify} importAudio={importAudio} captureSession={captureSession} />
-    if (store.workspace === 'arrange') return <ArrangementView beat={engine.beat} notify={notify} captureSession={captureSession} />
+    if (store.workspace === 'arrange') return <ArrangementView beat={engine.beat} onSeek={seek} notify={notify} captureSession={captureSession} />
     return <MixerView />
-  }, [captureSession, engine, importAudio, notify, store.workspace])
+  }, [captureSession, engine, importAudio, notify, seek, store.workspace])
 
   return <div className={`app ${engine.recording ? 'is-recording' : ''}`}>
     <header className="topbar">
@@ -307,7 +313,7 @@ export default function App() {
         <button className="icon-button" title="Return to start" aria-label="Return to start" onClick={stop}><SkipBack size={17} /></button>
         <button className={`transport-play ${engine.playing ? 'active' : ''}`} title="Play/Pause · Space" aria-label={engine.playing ? 'Pause' : 'Play'} onClick={() => void togglePlay()}>{engine.playing ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}</button>
         <button className={`record-button ${engine.recording ? 'active' : ''}`} title="Record · R" aria-label={engine.recording ? 'Stop recording' : 'Record'} onClick={() => void toggleRecord()}><span /></button>
-        <div className="position" aria-label={`Position ${formatBeat(engine.beat)}`}>{formatBeat(engine.beat)}</div>
+        <div className="transport-position"><div className="elapsed-time" aria-label={`Elapsed time ${formatElapsed(engine.beat, store.project.bpm)}`}>{formatElapsed(engine.beat, store.project.bpm)}</div><div className="position" aria-label={`Position ${formatBeat(engine.beat)}`}>{formatBeat(engine.beat)}</div></div>
         <label className="tempo"><span>TEMPO</span><input aria-label="Tempo" type="number" min="30" max="300" value={store.project.bpm} onChange={(event) => store.commit(touch({ ...store.project, bpm: Math.max(30, Math.min(300, Number(event.target.value))) }), 'Change tempo')} /></label>
         <button className={`text-button ${metronome ? 'active' : ''}`} aria-pressed={metronome} onClick={() => setMetronome((value) => !value)}>CLICK</button>
         <button className={`text-button ${store.project.loop.enabled ? 'active' : ''}`} aria-pressed={store.project.loop.enabled} onClick={() => store.commit(touch({ ...store.project, loop: { ...store.project.loop, enabled: !store.project.loop.enabled } }), 'Toggle loop')}>LOOP</button>
