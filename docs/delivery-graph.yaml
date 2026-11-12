@@ -90,6 +90,15 @@ nodes:
     evidence: [src/songwriting/core.test.ts, docs/songwriting-language-packs.md]
     risks: [heuristic syllable and rhyme estimates, language packs require fluent-speaker review]
     decision_refs: []
+  - id: arrangement-direct-editing
+    outcome: Users can select, delete, move, resize, zoom, and seek arrangements directly with standard desktop gestures
+    state: verified
+    depends_on: [workflows]
+    acceptance: [context-aware keyboard selection and deletion, snapped move and edge resize, single-transaction undo, cursor-anchored wheel zoom, precise ruler and playhead seek, elapsed-time labels]
+    verification: [npm run check, npm run build, npm run electron:smoke]
+    evidence: [src/domain/arrangementEditing.test.ts, scripts/arrangement-gestures-smoke.cjs, docs/testing.md]
+    risks: [seeking pauses playback, extended arrangement instances loop their shared source]
+    decision_refs: []
   - id: singing-voice-conversion
     outcome: Users and MCP agents can turn an isolated generated vocal into a consented personal singing voice with a local optional provider
     state: verified

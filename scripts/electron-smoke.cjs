@@ -368,6 +368,7 @@ async function run() {
   await evaluate(window, `document.querySelector('button[title="Move one beat right"]').click(); document.querySelector('button[title="Shorten one beat"]').click(); true`, 'move and resize arrangement block')
   await evaluate(window, `document.querySelector('button[title="Delete block"]').click(); true`, 'delete arrangement block')
   await waitFor(window, `document.querySelectorAll('.arrangement-block').length === 9`, 'deleted arrangement block')
+  await require('./arrangement-gestures-smoke.cjs')(window, evaluate, waitFor, delay)
   window.setSize(1024, 680); await delay(150)
   await capture(window, screenshots.arrangeMinimum)
   window.setSize(1480, 940); await delay(150)
